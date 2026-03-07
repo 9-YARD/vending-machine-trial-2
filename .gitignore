@@ -1,0 +1,14 @@
+# Gradle build outputs & caches
+.gradle/
+build/
+app/build/
+
+# Local machine config
+local.properties
+
+# Android Studio
+*.iml
+.idea/
+
+# macOS
+.DS_Store
