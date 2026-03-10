@@ -48,6 +48,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/dispense_slot_31"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btn_scan_slots"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Scan Slots 1–100"
         android:layout_marginBottom="16dp" />
 
     <!-- Last result -->

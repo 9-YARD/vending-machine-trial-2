@@ -8,8 +8,7 @@ class VendingApplication : Application() {
         super.onCreate()
         val mapInit = mutableMapOf<String, Any>()
         mapInit["PkgName"] = "com.example.vendingtest"
-        // Serial port ttyS3 — uppercase S required by hardware
-        mapInit["DeviceSeriPath1"] = "/dev/ttyS3"
+        mapInit["DeviceSeriPath1"] = "/dev/ttyS2"
         YsVendingIF.getInstance().initialize(applicationContext, mapInit)
     }
 }

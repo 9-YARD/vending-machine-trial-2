@@ -2,7 +2,7 @@
     <string name="app_name">VendingTest</string>
     <string name="title_vending_test">Vending Test</string>
     <string name="checking_auth">Checking auth…</string>
-    <string name="serial_port_label">Serial Port: ttyS3</string>
+    <string name="serial_port_label">Serial Port: ttyS2</string>
     <string name="dispense_slot_36">Dispense Slot 36</string>
     <string name="dispense_slot_31">Dispense Slot 31</string>
     <string name="last_result_label">Last Result:</string>
