@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
@@ -29,6 +30,12 @@ class MainActivity : AppCompatActivity() {
     private var scanSlot = 0
     private var scanning = false
 
+    // Hold strong references to listeners so they are not GC'd before callback fires
+    private var shipResultListener: YsResultListener? = null
+    private var scanResultListener: YsResultListener? = null
+
+    companion object { const val TAG = "VendingTest" }
+
     private val myVendingListener = MyVendingListener()
     private val authHandler = Handler(Looper.getMainLooper())
     private var authPollCount = 0
@@ -36,11 +43,14 @@ class MainActivity : AppCompatActivity() {
     private val authPollRunnable = object : Runnable {
         override fun run() {
             if (YsVendingIF.getInstance().isAuthSuccess()) {
+                Log.d(TAG, "Auth success")
                 tvAuthStatus.text = "Authorized"
                 tvAuthStatus.setTextColor(Color.parseColor("#2E7D32"))
             } else if (authPollCount < 20) {
                 authPollCount++
                 authHandler.postDelayed(this, 500)
+            } else {
+                Log.w(TAG, "Auth timed out after 10s")
             }
             // else: give up after 10 s, leave as "Not Authorized"
         }
@@ -64,9 +74,6 @@ class MainActivity : AppCompatActivity() {
         tvAuthStatus.setTextColor(Color.parseColor("#F57F17"))   // amber
         authPollCount = 0
         authHandler.postDelayed(authPollRunnable, 500)
-
-        // Register live-event listener
-        YsVendingIF.getInstance().registerListener(myVendingListener)
 
         btnSlot36.setOnClickListener { dispense(36) }
         btnSlot31.setOnClickListener { dispense(31) }
@@ -109,26 +116,32 @@ class MainActivity : AppCompatActivity() {
         map["DropCheck"] = false
         map["TransId"]   = System.currentTimeMillis().toString()
 
-        YsVendingIF.getInstance().ship(map, object : YsResultListener() {
+        Log.d(TAG, "Scan slot $slot: sending $map")
+
+        scanResultListener = object : YsResultListener() {
             override fun OnResult(result: MutableMap<Any?, Any?>?) {
                 val errMsg  = result?.get(YsResultKey.DRIVE_RESULT_ERRMSG)?.toString() ?: ""
                 val errCode = result?.get(YsResultKey.DRIVE_RESULT_ERRCODE)?.toString() ?: ""
-                val slotExists = !errMsg.contains("slot", ignoreCase = true) &&
+                Log.d(TAG, "Scan slot $slot result: code=$errCode msg=$errMsg full=$result")
+                // S120 = cannot find SlotNumber, S241 = invalid parameters
+                val slotExists = errCode != "S120" && errCode != "120" &&
+                                 errCode != "S241" && errCode != "241" &&
+                                 !errMsg.contains("slot", ignoreCase = true) &&
                                  !errMsg.contains("not found", ignoreCase = true) &&
-                                 !errMsg.contains("no slot", ignoreCase = true) &&
-                                 errCode != "S241" && errCode != "241"
+                                 !errMsg.contains("no slot", ignoreCase = true)
                 runOnUiThread {
                     tvResult.text = "Scanning slot $slot/100…"
-                    if (slotExists) {
-                        foundSlots.add(slot)
-                        tvLog.append("Slot $slot: OK (ErrCode=$errCode ErrMsg=$errMsg)\n")
-                        scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
-                    }
+                    // Log ALL results on screen, mark working ones
+                    val indicator = if (slotExists) "✓" else "✗"
+                    tvLog.append("$indicator Slot $slot: code=$errCode msg=$errMsg\n")
+                    scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
+                    if (slotExists) foundSlots.add(slot)
                 }
                 // small delay between slots to avoid flooding the service
                 authHandler.postDelayed({ scanNextSlot() }, 300)
             }
-        })
+        }
+        YsVendingIF.getInstance().ship(map, scanResultListener)
     }
 
     private fun dispense(slot: Int) {
@@ -136,13 +149,17 @@ class MainActivity : AppCompatActivity() {
         mapShip["MsgType"]   = YsAidlConstant.MsgType.MSG_TYPE_SHIP
         mapShip["SlotNo"]    = slot
         mapShip["DropCheck"] = true
-        mapShip["TransId"]   = System.currentTimeMillis().toString()
+        mapShip["TransID"] = "TXN-${System.currentTimeMillis()}"
         mapShip["PayMethod"] = "255"
         mapShip["PayAmount"] = "1.0"
         mapShip["Order"]     = System.currentTimeMillis().toString()
 
-        YsVendingIF.getInstance().ship(mapShip, object : YsResultListener() {
+
+        Log.d(TAG, "Dispense slot $slot: sending $mapShip")
+
+        shipResultListener = object : YsResultListener() {
             override fun OnResult(map: MutableMap<Any?, Any?>?) {
+                Log.d(TAG, "Dispense slot $slot result: $map")
                 val status  = map?.get(YsResultKey.DRIVE_RESULT_STATUS)
                 val errCode = map?.get(YsResultKey.DRIVE_RESULT_ERRCODE)
                 val errMsg  = map?.get(YsResultKey.DRIVE_RESULT_ERRMSG)
@@ -158,19 +175,32 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     tvResult.text = resultText
+                    tvLog.append("Dispense $slot: code=$errCode msg=$errMsg\n")
+                    scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
                 }
             }
-        })
+        }
+        YsVendingIF.getInstance().ship(mapShip, shipResultListener)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        YsVendingIF.getInstance().registerListener(myVendingListener)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        YsVendingIF.getInstance().unregisterListener(myVendingListener)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         authHandler.removeCallbacks(authPollRunnable)
-        YsVendingIF.getInstance().unregisterListener(myVendingListener)
     }
 
     inner class MyVendingListener : YsVendingListener() {
         override fun OnResult(map: MutableMap<Any?, Any?>?) {
+            Log.d(TAG, "VendingListener.OnResult: $map")
             val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
             runOnUiThread {
                 tvLog.append("[$timestamp] ${map.toString()}\n")
